@@ -1539,7 +1539,8 @@ class AdvancedNet2(Net2):
         self.connect_timeout = connect_timeout
         self.timeout = timeout
         self.ssl_version = getattr(ssl, 'PROTOCOL_%s' % ssl_version)
-        self.openssl_context = OpenSSL.SSL.Context(getattr(OpenSSL.SSL, '%s_METHOD' % ssl_version))
+        # self.openssl_context = OpenSSL.SSL.Context(getattr(OpenSSL.SSL, '%s_METHOD' % ssl_version))
+        self.openssl_context = SSLConnection.context_builder(ssl_version,'cacert.pem', cipher_suites='ALL:!RC4-SHA:!ECDHE-RSA-RC4-SHA:!ECDHE-RSA-AES128-GCM-SHA256:!AES128-GCM-SHA256:!ECDHE-RSA-AES128-SHA:!AES128-SHA'.split(':'))
         self.dns_servers = dns_servers
         self.dns_blacklist = dns_blacklist
         self.dns_cache = LRUCache(dns_cachesize)
@@ -1768,9 +1769,9 @@ class AdvancedNet2(Net2):
                 sock.settimeout(min(self.connect_timeout, timeout))
                 # pick up the certificate
                 if not validate:
-                    ssl_sock = ssl.wrap_socket(sock, ssl_version=self.ssl_version, ciphers='ECDHE-RSA-AES128-SHA', do_handshake_on_connect=False)
+                    ssl_sock = ssl.wrap_socket(sock, ssl_version=self.ssl_version, ciphers='ALL:!RC4-SHA:!ECDHE-RSA-RC4-SHA:!ECDHE-RSA-AES128-GCM-SHA256:!AES128-GCM-SHA256:!ECDHE-RSA-AES128-SHA:!AES128-SHA:!DES-CBC3-SHA', do_handshake_on_connect=False)
                 else:
-                    ssl_sock = ssl.wrap_socket(sock, ssl_version=self.ssl_version, ciphers='ECDHE-RSA-AES128-SHA', cert_reqs=ssl.CERT_REQUIRED, ca_certs=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cacert.pem'), do_handshake_on_connect=False)
+                    ssl_sock = ssl.wrap_socket(sock, ssl_version=self.ssl_version, ciphers='ALL:!RC4-SHA:!ECDHE-RSA-RC4-SHA:!ECDHE-RSA-AES128-GCM-SHA256:!AES128-GCM-SHA256:!ECDHE-RSA-AES128-SHA:!AES128-SHA:!DES-CBC3-SHA', cert_reqs=ssl.CERT_REQUIRED, ca_certs=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cacert.pem'), do_handshake_on_connect=False)
                 ssl_sock.settimeout(min(self.connect_timeout, timeout))
                 # start connection time record
                 start_time = time.time()
@@ -1983,6 +1984,9 @@ class AdvancedNet2(Net2):
         addresses = [(x, port) for x in self.iplist_alias.get(self.getaliasbyname('%s:%d' % (hostname, port))) or self.gethostsbyname(hostname)]
         #logging.info('gethostsbyname(%r) return %d addresses', hostname, len(addresses))
         sock = None
+        if sys.platform.startswith('win'):
+            create_connection = create_connection_withopenssl
+
         for i in range(kwargs.get('max_retry', 4)):
             reorg_ipaddrs()
             good_ipaddrs = sorted([x for x in addresses if x in self.ssl_connection_good_ipaddrs], key=self.ssl_connection_time.get)
@@ -2001,11 +2005,7 @@ class AdvancedNet2(Net2):
             logging.debug('%s good_ipaddrs=%d, unknown_ipaddrs=%r, bad_ipaddrs=%r', cache_key, len(good_ipaddrs), len(unknown_ipaddrs), len(bad_ipaddrs))
             queobj = Queue.Queue()
             for addr in addrs:
-                #if sys.platform != 'win32':
-                    # Workaround for CPU 100% issue under MacOSX/Linux
-                    thread.start_new_thread(create_connection, (addr, timeout, queobj))
-                #else:
-                #    thread.start_new_thread(create_connection_withopenssl, (addr, timeout, queobj))
+                thread.start_new_thread(create_connection, (addr, timeout, queobj))
             errors = []
             for i in range(len(addrs)):
                 sock = queobj.get()
